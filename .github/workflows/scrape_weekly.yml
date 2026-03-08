@@ -1,27 +1,33 @@
-name: Weekly Retail Planning Scraper
+name: MAPlanning Retail Intelligence
 
 on:
+  # ── Job 1: Scrape every Sunday at 02:00 UTC ──────────────
+  # ── Job 2: Email every Monday at 10:00 UTC ───────────────
   schedule:
-    # Every Sunday at 02:00 UTC
-    - cron: "0 2 * * 0"
+    - cron: "0 2 * * 0"    # Sunday 2AM  → scraper
+    - cron: "0 10 * * 1"   # Monday 10AM → email digest
 
-  # Also lets you trigger it manually from the GitHub Actions tab
-  workflow_dispatch:
+  workflow_dispatch:       # Manual trigger from Actions tab
 
 jobs:
+  # ════════════════════════════════════════════════════════
+  # JOB 1 — Scrape and write to Google Sheets
+  # Runs: Sunday 02:00 UTC
+  # ════════════════════════════════════════════════════════
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 360   # 6 hours max — plenty for 70 councils
+    timeout-minutes: 360
+    # Only run on Sunday schedule or manual trigger
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 2 * * 0'))
 
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -30,3 +36,33 @@ jobs:
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
         run: python maplanning_v16.py
+
+  # ════════════════════════════════════════════════════════
+  # JOB 2 — Email digest of last 7 days
+  # Runs: Monday 10:00 UTC  (independently — doesn't need scraper to finish)
+  # ════════════════════════════════════════════════════════
+  email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only run on Monday schedule or manual trigger
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 10 * * 1'))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send email digest
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          GMAIL_FROM:               ${{ secrets.GMAIL_FROM }}
+          GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_TO:                 ${{ secrets.GMAIL_TO }}
+        run: python send_email.py

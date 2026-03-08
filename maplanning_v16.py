@@ -27,52 +27,49 @@ WEEKS_TO_SCRAPE = 12
 # Each URL is tested at startup — dead ones are skipped automatically.
 # All use the standard Idox /search.do?action=advanced endpoint.
 COUNCILS = {
-    # ── GREATER MANCHESTER ──────────────────────────────────
-    # Manchester: correct URL confirmed; HTTP 500 is intermittent server load
+    # ── GREATER MANCHESTER ─────────────────────────────────
+    # HTTP 500 is intermittent load — preflight will retry
     "Manchester":    "https://pa.manchester.gov.uk/online-applications",
     "Salford":       "https://publicaccess.salford.gov.uk/online-applications",
-    # Bolton uses non-standard path /online-applications-17
-    "Bolton":        "https://www.planningpa.bolton.gov.uk/online-applications-17",
-    "Oldham":        "https://planning.oldham.gov.uk/online-applications",
     "Tameside":      "https://publicaccess.tameside.gov.uk/online-applications",
     "Trafford":      "https://publicaccess.trafford.gov.uk/online-applications",
+    "Oldham":        "https://planning.oldham.gov.uk/online-applications",
+    "Bolton":        "https://www.planningpa.bolton.gov.uk/online-applications-17",
     "Wigan":         "https://planning.wigan.gov.uk/online-applications",
-    # Rochdale migrated away from Idox in December 2025 — skipping
-    # Stockport uses own portal, not standard Idox — skipping
-    # Bury — URL to be verified
+    "Bury":          "https://planning.bury.gov.uk/online-applications",
 
     # ── MERSEYSIDE & CHESHIRE ──────────────────────────────
     "Wirral":        "https://planning.wirral.gov.uk/online-applications",
-    "Knowsley":      "https://pa.knowsley.gov.uk/online-applications",
+    "Knowsley":      "https://publicaccess.knowsley.gov.uk/online-applications",
     "Warrington":    "https://planning.warrington.gov.uk/online-applications",
     "Cheshire East": "https://pa.cheshireeast.gov.uk/online-applications",
-    "Blackburn":     "https://www.blackburn.gov.uk/planning/planning-register",
-    # Liverpool — uses custom portal, not standard Idox — skipping
+    "Blackburn":     "https://idox.blackburn.gov.uk/online-applications",
+    "St Helens":     "https://pa.sthelens.gov.uk/online-applications",
 
     # ── WEST YORKSHIRE ─────────────────────────────────────
     "Leeds":         "https://publicaccess.leeds.gov.uk/online-applications",
     "Bradford":      "https://planning.bradford.gov.uk/online-applications",
-    "Calderdale":    "https://portal.calderdale.gov.uk/online-applications",
+    "Calderdale":    "https://publicaccess.calderdale.gov.uk/online-applications",
     "Wakefield":     "https://planning.wakefield.gov.uk/online-applications",
-    "Kirklees":      "https://www.kirklees.gov.uk/planning-portal/online-applications",
+    "Kirklees":      "https://www.kirklees.gov.uk/beta/planning-and-building-control/planning-applications/search-planning-applications",
 
     # ── SOUTH YORKSHIRE ────────────────────────────────────
     "Sheffield":     "https://planningapps.sheffield.gov.uk/online-applications",
-    "Rotherham":     "https://apps.rotherham.gov.uk/online-applications",
-    "Barnsley":      "https://www.barnsleyplanningportal.co.uk/online-applications",
-    "Doncaster":     "https://www.doncaster.gov.uk/planningonline/online-applications",
+    "Rotherham":     "https://planningonline.rotherham.gov.uk/online-applications",
+    "Doncaster":     "https://planning.doncaster.gov.uk/online-applications",
 
     # ── EAST MIDLANDS ──────────────────────────────────────
     "Leicester":     "https://planning.leicester.gov.uk/online-applications",
     "Nottingham":    "https://publicaccess.nottinghamcity.gov.uk/online-applications",
-    "Peterborough":  "https://planningpa.peterborough.gov.uk/online-applications",
-    "Northampton":   "https://planning.northampton.gov.uk/online-applications",
+    "Peterborough":  "https://planning.peterborough.gov.uk/online-applications",
+    "Derby":         "https://eplanning.derby.gov.uk/online-applications",
     "Lincoln":       "https://planning.lincoln.gov.uk/online-applications",
+    "Northampton":   "https://publicaccess.northampton.gov.uk/online-applications",
 
     # ── WEST MIDLANDS ──────────────────────────────────────
-    "Wolverhampton": "https://www.wolverhampton.gov.uk/planning-portal/online-applications",
+    "Solihull":      "https://publicaccess.solihull.gov.uk/online-applications",
+    "Wolverhampton": "https://planningonline.wolverhampton.gov.uk/online-applications",
     "Walsall":       "https://planning.walsall.gov.uk/online-applications",
-    "Solihull":      "https://eplanning.solihull.gov.uk/online-applications",
 
     # ── SOUTH WEST ─────────────────────────────────────────
     "Bristol":       "https://planningonline.bristol.gov.uk/online-applications",
@@ -80,38 +77,42 @@ COUNCILS = {
     "Exeter":        "https://publicaccess.exeter.gov.uk/online-applications",
     "Cornwall":      "https://planning.cornwall.gov.uk/online-applications",
     "Swindon":       "https://pa.swindon.gov.uk/online-applications",
-    "Bath":          "https://www.bathnes.gov.uk/planning-portal/online-applications",
-    "Gloucester":    "https://gloucester.gov.uk/planning-portal/online-applications",
-    "Cheltenham":    "https://planning.cheltenham.gov.uk/online-applications",
-    "Taunton":       "https://www.somersetwestandtaunton.gov.uk/planning/planning-portal",
+    "Bath":          "https://www.bathnes.gov.uk/services/planning-and-building-control/planning-applications/search-planning-applications",
+    "Gloucester":    "https://publicaccess.gloucester.gov.uk/online-applications",
+    "Cheltenham":    "https://publicaccess.cheltenham.gov.uk/online-applications",
+    "Taunton":       "https://www.somersetwestandtaunton.gov.uk/planning/search-planning-applications",
 
     # ── SOUTH EAST ─────────────────────────────────────────
     "Portsmouth":    "https://publicaccess.portsmouth.gov.uk/online-applications",
     "Southampton":   "https://planningpublicaccess.southampton.gov.uk/online-applications",
     "Reading":       "https://planning.reading.gov.uk/online-applications",
     "Oxford":        "https://public.oxford.gov.uk/online-applications",
-    "Milton Keynes": "https://publicaccess.milton-keynes.gov.uk/online-applications",
+    "Milton Keynes": "https://pa.milton-keynes.gov.uk/online-applications",
     "Medway":        "https://planning.medway.gov.uk/online-applications",
     "Canterbury":    "https://publicaccess.canterbury.gov.uk/online-applications",
-    "Brighton":      "https://planningapps.brighton-hove.gov.uk/online-applications",
-    "Guildford":     "https://www.guildford.gov.uk/planning-portal/online-applications",
-    "Maidstone":     "https://pa.maidstone.gov.uk/online-applications",
+    "Maidstone":     "https://www.maidstone.gov.uk/planning-portal/search-for-planning-applications",
+    "Guildford":     "https://planningpublicaccess.guildford.gov.uk/online-applications",
     "Thanet":        "https://planning.thanet.gov.uk/online-applications",
+    "Winchester":    "https://planningapps.winchester.gov.uk/online-applications",
+    "Eastbourne":    "https://planning.eastbourne.gov.uk/online-applications",
 
     # ── EAST OF ENGLAND ────────────────────────────────────
     "Norfolk":       "https://idoxpa.north-norfolk.gov.uk/online-applications",
-    "Norwich":       "https://planningonline.norwich.gov.uk/online-applications",
+    "Norwich":       "https://planning.norwich.gov.uk/online-applications",
     "Ipswich":       "https://publicaccess.ipswich.gov.uk/online-applications",
     "Cambridge":     "https://applications.greatercambridgeplanning.org/online-applications",
     "Luton":         "https://planning.luton.gov.uk/online-applications",
     "Chelmsford":    "https://publicaccess.chelmsford.gov.uk/online-applications",
-    "Colchester":    "https://www.colchester.gov.uk/planning-portal/online-applications",
+    "Colchester":    "https://planningpa.colchester.gov.uk/online-applications",
     "Southend":      "https://publicaccess.southend-on-sea.gov.uk/online-applications",
+    "Tendring":      "https://idox.tendringdc.gov.uk/online-applications",
 
     # ── LONDON ─────────────────────────────────────────────
     "Westminster":   "https://idoxpa.westminster.gov.uk/online-applications",
+    "Camden":        "https://camdocs.camden.gov.uk/online-applications",
     "Southwark":     "https://planning.southwark.gov.uk/online-applications",
     "Ealing":        "https://pam.ealing.gov.uk/online-applications",
+    "Islington":     "https://www.islington.gov.uk/planning/planning-applications/search-planning-applications",
     "Lewisham":      "https://planning.lewisham.gov.uk/online-applications",
     "Lambeth":       "https://planning.lambeth.gov.uk/online-applications",
     "Croydon":       "https://publicaccess.croydon.gov.uk/online-applications",
@@ -120,29 +121,40 @@ COUNCILS = {
     "Brent":         "https://pa.brent.gov.uk/online-applications",
     "Tower Hamlets": "https://development.towerhamlets.gov.uk/online-applications",
     "Greenwich":     "https://planning.royalgreenwich.gov.uk/online-applications",
-    "Waltham Forest":"https://planning.walthamforest.gov.uk/online-applications",
-    "Wandsworth":    "https://planning.wandsworth.gov.uk/online-applications",
+    "Hackney":       "https://planningapps.hackney.gov.uk/online-applications",
+    "Newham":        "https://pa.newham.gov.uk/online-applications",
     "Haringey":      "https://www.planningservices.haringey.gov.uk/online-applications",
-    "Hounslow":      "https://www.hounslow.gov.uk/planning-portal/online-applications",
+    "Wandsworth":    "https://planning.wandsworth.gov.uk/online-applications",
+    "Waltham Forest":"https://planning.walthamforest.gov.uk/online-applications",
+    "Hounslow":      "https://planningpa.hounslow.gov.uk/online-applications",
     "Sutton":        "https://planningregister.sutton.gov.uk/online-applications",
     "Kingston":      "https://publicaccess.kingston.gov.uk/online-applications",
     "Merton":        "https://planning.merton.gov.uk/online-applications",
-    "Richmond":      "https://www.richmond.gov.uk/planning-portal/online-applications",
+    "Richmond":      "https://www2.richmond.gov.uk/online-applications",
     "Bromley":       "https://searchapps.bromley.gov.uk/online-applications",
     "Hillingdon":    "https://pa.hillingdon.gov.uk/online-applications",
+    "Harrow":        "https://planningsearch.harrow.gov.uk/online-applications",
+    "Redbridge":     "https://publicaccess.redbridge.gov.uk/online-applications",
+    "Havering":      "https://development.havering.gov.uk/online-applications",
+    "Bexley":        "https://pa.bexley.gov.uk/online-applications",
+    "Kensington":    "https://www.rbkc.gov.uk/planning/searches/default.aspx",
 
     # ── NORTH EAST ─────────────────────────────────────────
     "Newcastle":     "https://publicaccess.newcastle.gov.uk/online-applications",
     "Gateshead":     "https://publicaccess.gateshead.gov.uk/online-applications",
     "Sunderland":    "https://publicaccess.sunderland.gov.uk/online-applications",
+    "North Tyneside":"https://idoxpublicaccess.northtyneside.gov.uk/online-applications",
+    "South Tyneside":"https://www.southtyneside.gov.uk/article/37030/Search-for-planning-applications",
     "Durham":        "https://publicaccess.durham.gov.uk/online-applications",
     "Middlesbrough": "https://planning.middlesbrough.gov.uk/online-applications",
+    "Sunderland":    "https://publicaccess.sunderland.gov.uk/online-applications",
 
     # ── NORTH WEST ─────────────────────────────────────────
-    "Preston":       "https://planning.preston.gov.uk/online-applications",
-    "Blackpool":     "https://www.blackpool.gov.uk/planning-portal/online-applications",
-    "Lancaster":     "https://pa.lancaster.gov.uk/online-applications",
+    "Preston":       "https://www.preston.gov.uk/planning-portal/online-applications",
+    "Lancaster":     "https://planning.lancaster.gov.uk/online-applications",
+    "Blackpool":     "https://idox.blackpool.gov.uk/online-applications",
     "Carlisle":      "https://planning.carlisle.gov.uk/online-applications",
+    "Cumbria":       "https://planning.cumbria.gov.uk/online-applications",
 }
 
 RETAIL_KEYWORDS = ["Retail", "Class E", "shop", "supermarket", "convenience", "comparison"]
@@ -228,11 +240,71 @@ def safe_get(sess, url, timeout=25, retries=2):
 # ════════════════════════════════════════════════════════════
 # PRE-FLIGHT: test every council URL before scraping
 # ════════════════════════════════════════════════════════════
+def _check_one_url(name, base_url, timeout=35):
+    """
+    Test a single council URL.  Returns ("ok"|"dead"|"retry", reason).
+    Tries up to 3 times for transient 5xx errors.
+    """
+    test_url = f"{base_url}/search.do?action=advanced&searchType=Application"
+    sess = new_session()
+    last_status = None
+
+    for attempt in range(3):
+        try:
+            r = sess.get(test_url, timeout=timeout, allow_redirects=True, verify=False)
+            last_status = r.status_code
+
+            if r.status_code == 200:
+                has_form = bool(BeautifulSoup(r.text, "html.parser").find("form"))
+                if has_form:
+                    return "ok", None
+                # 200 but not Idox — no point retrying
+                return "dead", "200 but no Idox form"
+
+            if r.status_code in (500, 502, 503, 504):
+                # Server-side error — retry after brief pause
+                if attempt < 2:
+                    log(f"  ⏳ {name:22s} HTTP {r.status_code} — retry {attempt+2}/3 in 15s…", 0)
+                    time.sleep(15)
+                    continue
+                return "dead", f"HTTP {r.status_code} (3 attempts)"
+
+            if r.status_code == 403:
+                return "dead", "HTTP 403 (bot-blocked)"
+            if r.status_code == 406:
+                return "dead", "HTTP 406 (Not Acceptable)"
+            if r.status_code == 404:
+                return "dead", "HTTP 404 (wrong URL path)"
+
+            return "dead", f"HTTP {r.status_code}"
+
+        except requests.exceptions.ConnectionError as e:
+            reason = "DNS failure — URL doesn't exist" if _is_dns_error(e) else "Connection error"
+            if "DNS" in reason or attempt == 2:
+                return "dead", reason
+            # Connection error (timeout/reset) — retry
+            log(f"  ⏳ {name:22s} {reason} — retry {attempt+2}/3 in 10s…", 0)
+            time.sleep(10)
+            continue
+
+        except requests.exceptions.Timeout:
+            if attempt < 2:
+                log(f"  ⏳ {name:22s} Timeout — retry {attempt+2}/3 with longer timeout…", 0)
+                timeout = 55   # increase timeout on retry
+                time.sleep(5)
+                continue
+            return "dead", "Timeout (55s, 3 attempts)"
+
+        except Exception as e:
+            return "dead", f"{type(e).__name__}: {str(e)[:40]}"
+
+    return "dead", f"HTTP {last_status} after 3 attempts"
+
+
 def preflight_check(councils):
     """
-    Quick-tests each council URL.
-    Returns (live_dict, dead_dict) where live_dict only contains
-    councils whose Idox search page returned HTTP 200 with a form.
+    Tests every council URL.  Returns (live_dict, dead_dict).
+    Retries transient 500/502/503/timeout errors up to 3 times.
     """
     log("\n🔍 PRE-FLIGHT URL CHECK")
     log("=" * 60)
@@ -240,32 +312,14 @@ def preflight_check(councils):
     dead = {}
 
     for name, base_url in councils.items():
-        test_url = f"{base_url}/search.do?action=advanced&searchType=Application"
-        sess = new_session()
-        try:
-            r = sess.get(test_url, timeout=12, allow_redirects=True, verify=False)
-            if r.status_code == 200:
-                # Confirm it's an Idox form (has a <form> tag)
-                has_form = bool(BeautifulSoup(r.text, "html.parser").find("form"))
-                if has_form:
-                    live[name] = base_url
-                    log(f"  ✅ {name:22s} OK")
-                else:
-                    dead[name] = f"HTTP 200 but no form (not Idox)"
-                    log(f"  ⚠️  {name:22s} 200 but no Idox form — skipping")
-            else:
-                dead[name] = f"HTTP {r.status_code}"
-                log(f"  ⚠️  {name:22s} HTTP {r.status_code} — skipping")
-        except requests.exceptions.ConnectionError as e:
-            reason = "DNS failure — URL doesn't exist" if _is_dns_error(e) else f"Connection error"
+        status, reason = _check_one_url(name, base_url)
+        if status == "ok":
+            live[name] = base_url
+            log(f"  ✅ {name:22s} OK")
+        else:
             dead[name] = reason
-            log(f"  ❌ {name:22s} {reason}")
-        except requests.exceptions.Timeout:
-            dead[name] = "Timeout (10s)"
-            log(f"  ⏱️  {name:22s} Timeout — skipping")
-        except Exception as e:
-            dead[name] = str(e)[:60]
-            log(f"  ❌ {name:22s} {type(e).__name__}: {str(e)[:40]}")
+            emoji = "❌" if "DNS" in reason or "404" in reason else "⚠️ "
+            log(f"  {emoji} {name:22s} {reason}")
 
     log(f"\n  ✅ {len(live)} live   ❌ {len(dead)} unreachable")
     if dead:

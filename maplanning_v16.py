@@ -1012,129 +1012,271 @@ def get_details(sess, base_url, key_val):
             if "application type"  in label and not d.get("app_type"): d["app_type"]  = value
     return d
 
+# DOCUMENT FINDER
+# Handles all known Idox HTML layouts for the documents tab,
+# and resolves viewDocument.do to direct file URLs.
 # ════════════════════════════════════════════════════════════
-# FIND DECISION DOCUMENT
-# Scores each document row and picks the best match.
-# ════════════════════════════════════════════════════════════
+
+# Document type priority scores (higher = better)
+_DOC_SCORES = {
+    "decision notice": 100, "refusal notice":  100,
+    "decision letter": 100, "refusal letter":  100,
+    "refusal":          95, "decision":         90,
+    "appeal decision":  80, "officer report":   30,
+    "committee report": 25, "planning statement": 5,
+}
+
+def _score_text(text):
+    t = text.lower().strip()
+    for phrase, s in sorted(_DOC_SCORES.items(), key=lambda x: -x[1]):
+        if phrase in t:
+            return s
+    return 0
+
+def _abs_url(root, base_url, href):
+    if not href or href.startswith(("javascript:", "#", "mailto:")):
+        return None
+    if href.startswith("http"):
+        return href
+    if href.startswith("//"):
+        return "https:" + href
+    if href.startswith("/"):
+        return root + href
+    return base_url.rstrip("/") + "/" + href.lstrip("/")
+
+def _resolve_viewdoc(sess, url, base_url):
+    """
+    Follow a viewDocument.do URL to get the real file URL.
+    Idox typically does a 302 → /files/DC_WKSSDec/.../xxx.pdf
+    Returns (resolved_url, response_or_None).
+    resolved_url is a direct PDF path if redirect happened,
+    otherwise the original viewDocument.do URL.
+    """
+    if "viewDocument.do" not in url and "downloadDocument" not in url:
+        return url, None
+    try:
+        r = sess.get(url, allow_redirects=True, timeout=40,
+                     headers={"Accept": "application/pdf,*/*",
+                              "Referer": base_url})
+        # If there was a redirect to a direct file
+        if r.url != url:
+            return r.url, r
+        # If no redirect but content is PDF, the server streams directly.
+        # Return the original URL — we still have the content.
+        ct = r.headers.get("Content-Type", "").lower()
+        if "pdf" in ct or len(r.content) > 1000:
+            return url, r   # URL won't work without session, but content is here
+        return url, r
+    except Exception as e:
+        log(f"  ⚠️  viewDoc resolve error: {e}", 2)
+        return url, None
+
 def find_decision_doc(sess, base_url, key_val):
-    log(f"  📂 Documents...", 2)
+    """
+    Fetch the Documents tab and find the best decision notice.
+    Returns (store_url, content_response_or_None).
+      store_url          — URL to save in Sheets (direct PDF if possible)
+      content_response   — response object if we already have the bytes
+                           (avoids double-download in scan_pdf)
+    """
+    log(f"  📂 Documents tab…", 2)
+    from urllib.parse import urlparse
     p    = urlparse(base_url)
     root = f"{p.scheme}://{p.netloc}"
 
-    r = safe_get(sess, f"{base_url}/applicationDetails.do?activeTab=documents&keyVal={key_val}")
+    tab_url = f"{base_url}/applicationDetails.do?activeTab=documents&keyVal={key_val}"
+    r = sess.get(tab_url, timeout=25, allow_redirects=True, verify=False)
     if not r or r.status_code != 200:
-        log(f"  ❌ Documents tab failed", 2)
-        return None
+        log(f"  ❌ Documents tab HTTP {getattr(r,'status_code','?')}", 2)
+        return None, None
 
     soup = BeautifulSoup(r.text, "html.parser")
-    rows = [row for row in soup.find_all("tr") if len(row.find_all("td")) >= 2]
-    log(f"  {len(rows)} doc rows", 2)
 
-    def abs_url(href):
-        if not href or href in ("#", "javascript:void(0)"):
-            return None
-        if href.startswith("http"):
-            return href
-        if href.startswith("/"):
-            return f"{root}{href}"
-        return f"{base_url}/{href.lstrip('/')}"
+    # ── Gather candidates from ALL HTML patterns ─────────────
+    # Each candidate: {"score": int, "url": str, "label": str}
+    candidates = []
 
-    best_url = None
-    best_s   = 0
+    def _add(href, label, score):
+        u = _abs_url(root, base_url, href)
+        if u:
+            candidates.append({"score": score, "url": u, "label": label})
 
-    for row in rows:
-        cells = row.find_all("td")
-        texts = [c.get_text(strip=True).lower() for c in cells]
-        s = 0
-        for t in texts:
-            if t == "decision":             s = max(s, 100)
-            if t == "refusal":              s = max(s, 100)
-            if "decision notice"  in t:     s = max(s, 95)
-            if "refusal notice"   in t:     s = max(s, 95)
-            if "decision letter"  in t:     s = max(s, 95)
-            if "refusal letter"   in t:     s = max(s, 95)
-            if "decision"         in t and s < 40: s = max(s, 40)
-            if "officer report"   in t:     s = max(s, 25)
-        if s == 0:
-            continue
-        log(f"  Row score={s}: {'|'.join(texts[:4])[:65]}", 2)
-        link = None
-        for cell in reversed(cells):
-            for a in cell.find_all("a", href=True):
-                u = abs_url(a["href"])
-                if u:
-                    link = u
+    # Strategy 1: <tr> with <td> cells (classic Idox table layout)
+    doc_tables = soup.find_all("table")
+    for tbl in doc_tables:
+        for row in tbl.find_all("tr"):
+            tds = row.find_all("td")
+            if len(tds) < 2:
+                continue
+            # All text in this row
+            row_text = " ".join(td.get_text(strip=True) for td in tds)
+            score = _score_text(row_text)
+            if score == 0:
+                continue
+            # Find a link in this row
+            for td in reversed(tds):
+                for a in td.find_all("a", href=True):
+                    _add(a["href"], row_text[:50], score)
                     break
-            if link:
-                break
-        if link and s > best_s:
-            best_s   = s
-            best_url = link
-            log(f"  → ...{best_url[-65:]}", 2)
 
-    if best_url:
-        return best_url
+    # Strategy 2: <li> items (newer Idox accordion / list layout)
+    for li in soup.find_all("li"):
+        li_text = li.get_text(separator=" ", strip=True)
+        score = _score_text(li_text)
+        if score == 0:
+            continue
+        for a in li.find_all("a", href=True):
+            _add(a["href"], li_text[:50], score)
 
-    # Fallback 1 — any PDF in /files/ path
+    # Strategy 3: any <a> whose text or nearby heading scores well
     for a in soup.find_all("a", href=True):
-        u = abs_url(a["href"])
-        if u and "/files/" in u and ".pdf" in u.lower():
-            log(f"  Fallback PDF: ...{u[-55:]}", 2)
-            return u
+        link_text = a.get_text(strip=True)
+        parent_text = a.parent.get_text(separator=" ", strip=True) if a.parent else ""
+        score = max(_score_text(link_text), _score_text(parent_text))
+        if score >= 25:  # only meaningful scores
+            _add(a["href"], link_text[:50], score)
 
-    # Fallback 2 — known Idox document download patterns
+    # Strategy 4: direct /files/ PDF links (always include, score by filename)
     for a in soup.find_all("a", href=True):
-        u = abs_url(a["href"])
-        if u and any(k in u for k in ["downloadDocument", "viewDoc", "fileDetails"]):
-            log(f"  Fallback link: ...{u[-55:]}", 2)
-            return u
+        h = a["href"]
+        if "/files/" in h and ".pdf" in h.lower():
+            fname = h.split("/")[-1].lower()
+            score = 90 if any(w in fname for w in ["dec", "refus", "notice"]) else 10
+            _add(h, f"files/{h.split('/')[-1][:40]}", score)
 
-    log(f"  ❌ No decision doc found", 2)
-    return None
+    # Deduplicate by URL, keep highest score per URL
+    seen_urls = {}
+    for cand in candidates:
+        u = cand["url"]
+        if u not in seen_urls or cand["score"] > seen_urls[u]["score"]:
+            seen_urls[u] = cand
+
+    ranked = sorted(seen_urls.values(), key=lambda x: -x["score"])
+
+    if not ranked:
+        log(f"  ❌ No document links found ({len(soup.find_all('a'))} total anchors on page)", 2)
+        return None, None
+
+    log(f"  Found {len(ranked)} candidate doc links", 2)
+    for cand in ranked[:3]:
+        log(f"    score={cand['score']:3d} | {cand['label'][:55]}", 2)
+
+    # Take best candidate
+    best = ranked[0]
+    log(f"  → Best: score={best['score']} | {best['url'][-65:]}", 2)
+
+    # Resolve viewDocument.do to direct URL (fixes "Document Unavailable")
+    resolved_url, prefetched = _resolve_viewdoc(sess, best["url"], base_url)
+    if resolved_url != best["url"]:
+        log(f"  ✅ Resolved to direct URL: …{resolved_url[-65:]}", 2)
+
+    return resolved_url, prefetched
+
 
 # ════════════════════════════════════════════════════════════
-# PDF SCANNER
+# PDF SCANNER  —  accepts pre-fetched response to avoid double download
 # ════════════════════════════════════════════════════════════
-def scan_pdf(sess, pdf_url):
-    log(f"  📥 ...{pdf_url[-55:]}", 2)
+# Words that MUST appear in the PDF for it to count as a refusal.
+# An approved application's officer report can contain trigger topic words
+# ("sequential test", "nppf") while still recommending approval.
+# We require at least one explicit refusal phrase in the document.
+_REFUSAL_PHRASES = [
+    "is refused",
+    "be refused",
+    "hereby refused",
+    "refusal of",
+    "reasons for refusal",
+    "reason for refusal",
+    "refuse planning permission",
+    "refused planning permission",
+    "application is refused",
+    "permission is refused",
+    "appeal is dismissed",       # appeal decision = original refusal confirmed
+]
+
+def scan_pdf(sess, pdf_url, prefetched_response=None):
+    """
+    Download and scan a PDF for:
+      1. Retail planning trigger words (topic relevance)
+      2. Explicit refusal language (REQUIRED — prevents approved apps slipping through)
+
+    Returns (trigger_words, is_refused):
+      trigger_words  — list of matched PDF_TRIGGERS
+      is_refused     — True only if PDF contains explicit refusal language
+    Both must be non-empty/True for a lead to qualify.
+    """
+    log(f"  📥 …{pdf_url[-65:]}", 2)
     try:
-        r = sess.get(
-            pdf_url,
-            headers={"Accept": "application/pdf,*/*", "Referer": pdf_url},
-            timeout=45,
-            allow_redirects=True,
-        )
+        if prefetched_response is not None:
+            r = prefetched_response
+            log(f"  (using prefetched response)", 2)
+        else:
+            r = sess.get(
+                pdf_url,
+                headers={"Accept": "application/pdf,*/*", "Referer": pdf_url},
+                timeout=50, allow_redirects=True,
+            )
+
         ct   = r.headers.get("Content-Type", "").lower()
         size = len(r.content)
-        log(f"  HTTP {r.status_code} | {size:,}b | {ct[:30]}", 2)
+        log(f"  HTTP {r.status_code} | {size:,}b | {ct[:35]}", 2)
+
         if r.status_code != 200:
-            return []
+            return [], False
+
+        # Got HTML back = session error / "Document Unavailable"
         if "html" in ct:
-            log(f"  ⚠️  Got HTML not PDF", 2)
-            return []
-        if size < 500:
-            log(f"  ⚠️  Too small to be a PDF", 2)
-            return []
+            snippet = r.text[:300].replace("\n", " ")
+            log(f"  ⚠️  Got HTML (session issue or wrong URL): {snippet[:120]}", 2)
+            return [], False
+
+        if size < 800:
+            log(f"  ⚠️  Too small to be real PDF ({size}b)", 2)
+            return [], False
+
+        # Confirm it's a PDF (magic bytes)
+        if not r.content[:4] == b"%PDF":
+            # Some portals serve PDF without correct Content-Type
+            if size > 5000:
+                log(f"  ⚠️  No PDF magic bytes but large — trying anyway", 2)
+            else:
+                log(f"  ⚠️  Not a PDF", 2)
+                return [], False
+
         text = ""
         with pdfplumber.open(io.BytesIO(r.content)) as pdf:
-            log(f"  {len(pdf.pages)} pages", 2)
+            log(f"  {len(pdf.pages)}pp", 2)
             for pg in pdf.pages:
                 t = pg.extract_text()
                 if t:
                     text += t.lower() + " "
+
         if not text.strip():
-            log(f"  ⚠️  No extractable text (scanned image PDF?)", 2)
-            return []
+            log(f"  ⚠️  No extractable text — scanned image PDF?", 2)
+            return [], False
+
         log(f"  {len(text):,} chars extracted", 2)
+
+        # ── Check 1: is this actually a refusal? ─────────────────────
+        is_refused = any(phrase in text for phrase in _REFUSAL_PHRASES)
+        if is_refused:
+            log(f"  ✅ Refusal confirmed in PDF text", 2)
+        else:
+            log(f"  ⚠️  No refusal language found — likely approved/other decision", 2)
+
+        # ── Check 2: retail planning topic trigger words ──────────────
         found = [w for w in PDF_TRIGGERS if w in text]
-        for w in found:
-            log(f"  🎯 '{w}'", 2)
-        if not found:
-            log(f"  ❌ No trigger words found", 2)
-        return found
+        if found:
+            for w in found:
+                log(f"  🎯 '{w}'", 2)
+        else:
+            log(f"  ❌ No retail trigger words in PDF", 2)
+
+        return found, is_refused
+
     except Exception as e:
-        log(f"  ⚠️  PDF error: {e}", 2)
-        return []
+        log(f"  ⚠️  PDF error: {type(e).__name__}: {e}", 2)
+        return [], False
 
 # ════════════════════════════════════════════════════════════
 # PROCESS ONE APPLICATION
@@ -1147,15 +1289,45 @@ def process_app(sess, base_url, council, item):
     log(f"  📋 {ref}")
     log(f"  {item['desc'][:90]}")
 
-    det     = get_details(sess, base_url, kv)
-    doc_url = find_decision_doc(sess, base_url, kv)
+    det = get_details(sess, base_url, kv)
+
+    # Pre-filter 1: skip clearly non-refused decisions immediately
+    decision_raw = det.get("decision", "").lower().strip()
+    _skip_words = (
+        "grant", "approv", "prior approval not required", "prior approval required",
+        "no objection", "permit", "lawful", "certif",
+        "withdrawn", "invalid", "not required", "discharge",
+        "prior approval", "no prior approval",
+    )
+    if decision_raw and any(w in decision_raw for w in _skip_words):
+        log(f"  ⏭️  Decision='{det.get('decision','')}' — not a refusal, skip", 2)
+        return None
+
+    # If portal says "Refused" explicitly, log it — scan_pdf is still the final gate
+    if decision_raw and any(w in decision_raw for w in ("refus", "refuse")):
+        log(f"  ✅ Portal confirms refusal: '{det.get('decision','')}'", 2)
+
+    doc_url, prefetched  = find_decision_doc(sess, base_url, kv)
     if not doc_url:
         log(f"  ⚠️  No decision doc — skip")
         return None
 
-    triggers = scan_pdf(sess, doc_url)
+    triggers, is_refused = scan_pdf(sess, doc_url, prefetched_response=prefetched)
+
+    # Gate 1: must have explicit refusal language in PDF
+    if not is_refused:
+        # Fallback: check the decision field from the portal itself
+        decision_raw = det.get("decision", "").lower()
+        portal_refused = any(w in decision_raw for w in ("refus", "refuse", "refused"))
+        if not portal_refused:
+            log(f"  ❌ Not confirmed as refused (PDF + portal both lack refusal language) — skip")
+            return None
+        else:
+            log(f"  ✅ Refusal confirmed via portal decision field: '{det.get('decision','')}'")
+
+    # Gate 2: must have retail planning trigger words
     if not triggers:
-        log(f"  ❌ No trigger words — not a retail impact refusal")
+        log(f"  ❌ No retail trigger words — not a retail impact refusal")
         return None
 
     log(f"  🏆 QUALIFIED — Triggers: {triggers}")

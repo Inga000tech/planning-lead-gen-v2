@@ -1018,44 +1018,48 @@ _APPROVAL_WORDS = (
     # would false-match. "Approve with conditions" is caught by "approv" already.
 )
 # Decision values that Idox portals return — used in pass 3 scan
-_KNOWN_DECISIONS = [
-    # Refusals
-    "refused", "refuse", "refusal",
-    # Approvals — all variants must be here so pass 3 catches them
-    "approve with conditions", "approved with conditions",
-    "approved subject to conditions",
-    "granted", "approved", "grant",
+_APPROVAL_EXACT = [
     "permit", "permitted", "permitted development",
+    "approve with conditions", "approved with conditions",
+    "approved subject to conditions", "approved unconditionally",
+    "granted", "approved", "grant",
     "prior approval required", "prior approval not required",
-    "no prior approval required",
+    "no prior approval required", "no objection",
     "withdrawn", "invalid", "lawful development certificate",
+    "lawful use", "certificate of lawfulness",
 ]
+_REFUSAL_EXACT = [
+    "refused", "refuse", "refusal",
+    "appeal dismissed", "appeal is dismissed",
+]
+
 
 def _parse_decision_from_soup(soup):
     """
-    Extract the Decision field value from an Idox summary page.
+    Extract the Decision field from an Idox summary page.
 
-    Returns the actual decision text e.g. "Refused", "Approve with Conditions".
-    NEVER returns "Decided" (that is the Status field, not the Decision field).
+    4 passes — each more aggressive:
+      1. <tr><th>decision</th><td>VALUE</td>  (exact label, never matches "status")
+      2. <dt>decision</dt><dd>VALUE</dd>
+      3. Exact-line scan of full page text for known decision strings
+      4. Substring scan — finds "Permit", "Refused" etc. anywhere in page
 
-    Three passes — same logic proven in cleanup_sheet.py:
-      1. <tr><th>Decision</th><td>value</td>
-      2. <dt>Decision</dt><dd>value</dd>
-      3. Full-page text scan for known decision strings
+    Returns raw text e.g. "Refused", "Permit", "Approve with Conditions"
+    or "" if genuinely not found.
     """
-    # Pass 1: table row with exact "decision" header
+    # Pass 1: exact <th>decision</th> label
     for row in soup.find_all("tr"):
         th = row.find("th")
         td = row.find("td")
         if not th or not td:
             continue
         label = th.get_text(strip=True).lower().rstrip(":").strip()
-        if label == "decision":                 # EXACT match — "status" is excluded
+        if label == "decision":
             val = td.get_text(strip=True)
             if val and val.lower() not in ("", "decided", "-", "n/a", "none", "pending"):
                 return val
 
-    # Pass 2: definition list <dt>/<dd>
+    # Pass 2: <dt>decision</dt><dd>VALUE</dd>
     for dt in soup.find_all("dt"):
         label = dt.get_text(strip=True).lower().rstrip(":").strip()
         if label == "decision":
@@ -1065,12 +1069,25 @@ def _parse_decision_from_soup(soup):
                 if val and val.lower() not in ("", "decided", "-", "n/a", "pending"):
                     return val
 
-    # Pass 3: scan every line for known decision strings (case-insensitive)
-    page_lines = soup.get_text(separator="\n", strip=True).split("\n")
-    for line in page_lines:
+    # Pass 3: exact-line scan
+    page_text = soup.get_text(separator="\n", strip=True)
+    for line in page_text.split("\n"):
         stripped = line.strip().lower()
-        if stripped in _KNOWN_DECISIONS:
+        if stripped in _REFUSAL_EXACT:
             return line.strip()
+        if stripped in _APPROVAL_EXACT:
+            return line.strip()
+
+    # Pass 4: substring scan — last resort
+    page_lower = page_text.lower()
+    for word in _REFUSAL_EXACT:
+        if word in page_lower:
+            idx = page_lower.find(word)
+            return page_text[idx:idx+len(word)].strip()
+    for word in _APPROVAL_EXACT:
+        if word in page_lower:
+            idx = page_lower.find(word)
+            return page_text[idx:idx+len(word)].strip()
 
     return ""
 

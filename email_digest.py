@@ -25,9 +25,9 @@ DAYS_BACK  = 8    # leads added within last 8 days count as "this week"
 COL = dict(council=0, ref=1, addr=2, desc=3, app_type=4,
            applicant=5, agent=6, date_rec=7, date_dec=8,
            triggers=10, score=11, keyword=12,
-           portal=13, doc_url=14, date_found=15, comments=16,
-           est_value=17, developer=18, architect=19,
-           impact_prob=20, ch_number=21, reg_addr=22, contact_link=23)
+           portal=13, date_found=14, comments=15,
+           est_value=16, developer=17, architect=18,
+           impact_prob=19, ch_number=20, reg_addr=21, contact_link=22)
 
 def cell(row, key):
     idx = COL.get(key, -1)
@@ -81,7 +81,6 @@ def load_new_leads():
                 "triggers":     cell(row,"triggers"),
                 "score":        sc,
                 "portal":       cell(row,"portal"),
-                "doc_url":      cell(row,"doc_url"),
                 "est_value":    cell(row,"est_value"),
                 "developer":    cell(row,"developer"),
                 "architect":    cell(row,"architect"),
@@ -133,10 +132,6 @@ def _card(lead):
         btns += (f'<a href="{lead["portal"]}" style="display:inline-block;margin-right:8px;'
                  f'padding:6px 14px;background:#1e40af;color:#fff;border-radius:6px;'
                  f'font-size:12px;text-decoration:none;">&#128196; View Application</a>')
-    if lead["doc_url"]:
-        btns += (f'<a href="{lead["doc_url"]}" style="display:inline-block;margin-right:8px;'
-                 f'padding:6px 14px;background:#374151;color:#fff;border-radius:6px;'
-                 f'font-size:12px;text-decoration:none;">&#128209; Decision PDF</a>')
     if ch:
         btns += (f'<a href="{ch}" style="display:inline-block;padding:6px 14px;'
                  f'background:#374151;color:#fff;border-radius:6px;font-size:12px;'

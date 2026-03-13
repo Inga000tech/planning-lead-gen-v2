@@ -640,7 +640,55 @@ def load_existing_refs():
     except Exception as e:
         log(f"⚠️  Could not load existing refs: {e} — duplicate check may miss some")
 
-def write_lead(lead):
+def get_weekly_lead_count():
+    """
+    Count how many leads were added to the sheet in the past 7 days.
+    Reads the "Date Found" column (column 16) and counts rows where
+    the date is within the last 7 days.
+
+    This is included in the email digest even when the current run
+    finds 0 new leads — so the email is always meaningful.
+    """
+    ws = get_sheet()
+    if not ws:
+        return 0, []
+    try:
+        # Get all rows including Date Found (col 16) and key fields
+        all_rows = sheets_retry(lambda: ws.get_all_values())
+        if len(all_rows) < 2:
+            return 0, []
+
+        cutoff = datetime.now() - timedelta(days=7)
+        weekly_leads = []
+
+        for row in all_rows[1:]:  # skip header
+            if len(row) < 16:
+                continue
+            date_found_str = row[15].strip()  # column P = index 15 = "Date Found"
+            if not date_found_str:
+                continue
+            try:
+                # Handles both "2026-03-10 14:22" and "2026-03-10" formats
+                date_found = datetime.strptime(date_found_str[:10], "%Y-%m-%d")
+                if date_found >= cutoff:
+                    weekly_leads.append({
+                        "council": row[0] if row else "",
+                        "ref":     row[1] if len(row) > 1 else "",
+                        "desc":    row[3][:80] if len(row) > 3 else "",
+                        "score":   row[11] if len(row) > 11 else "",
+                        "date":    date_found_str,
+                    })
+            except Exception:
+                continue
+
+        log(f"✅ {len(weekly_leads)} leads added in the past 7 days (from sheet)")
+        return len(weekly_leads), weekly_leads
+
+    except Exception as e:
+        log(f"⚠️  Could not read weekly leads from sheet: {e}")
+        return 0, []
+
+
     ws = get_sheet()
     if not ws:
         return False
@@ -1123,6 +1171,63 @@ def _accept_disclaimer(sess, base_url, html, current_url):
         return False
 
 # ════════════════════════════════════════════════════════════
+# SESSION WARMUP
+# Idox portals require a properly initialised session before they
+# will accept POST requests. A cold session (going straight to
+# /search.do) often returns 200 on GET but 403 on POST because:
+#   • The JSESSIONID cookie is not seeded from the portal root
+#   • The disclaimer acceptance cookie is absent
+#   • Some WAF rules require an Origin that matches a prior GET
+#
+# Fix: before any keyword search, visit the portal root first,
+# then the search page, accept any disclaimer encountered.
+# After this, POST requests work reliably.
+# ════════════════════════════════════════════════════════════
+def _warmup_portal_session(sess, base_url):
+    """
+    Initialise the Idox session before searching.
+
+    1. GET portal root    → seeds JSESSIONID, any tracking cookies
+    2. GET search page    → checks for disclaimer gate
+    3. Accept disclaimer  → sets acceptance cookie if required
+    4. GET search page    → confirms form is now accessible
+
+    Returns True if session is ready for POST searches, False if
+    the portal is unreachable or permanently blocked.
+    """
+    p    = urlparse(base_url)
+    root = f"{p.scheme}://{p.netloc}"
+
+    # Step 1 — seed JSESSIONID from portal root
+    try:
+        sess.get(root, timeout=12, verify=False, allow_redirects=True)
+    except Exception:
+        pass  # best-effort; the JSESSIONID may still come from step 2
+
+    time.sleep(0.4)
+
+    # Step 2 — load search page
+    search_url = f"{base_url}/search.do?action=advanced&searchType=Application"
+    r = safe_get(sess, search_url, timeout=18)
+    if not r or r.status_code != 200:
+        return False
+
+    # Step 3 — accept disclaimer if shown
+    if _is_disclaimer_page(r.text):
+        log(f"  📋 Session warmup: disclaimer gate — accepting", 1)
+        _accept_disclaimer(sess, base_url, r.text, r.url)
+        time.sleep(0.8)
+        # Step 4 — re-fetch search page to confirm acceptance
+        r2 = safe_get(sess, search_url, timeout=18)
+        if not r2 or r2.status_code != 200 or _is_disclaimer_page(r2.text):
+            log(f"  ⚠️  Session warmup: disclaimer accept did not unlock portal", 1)
+            return False
+
+    log(f"  🔥 Session warmed up", 1)
+    return True
+
+
+# ════════════════════════════════════════════════════════════
 # FORM DISCOVERY
 # Reads ALL fields from the Idox search page HTML so hidden
 # CSRF tokens are automatically included in the POST body.
@@ -1282,13 +1387,67 @@ def _do_post(sess, base_url, keyword, date_from, date_to, with_refused=True):
     post[form["date_start"] or "date(applicationDecisionStart)"] = date_from
     post[form["date_end"]   or "date(applicationDecisionEnd)"]   = date_to
 
+    # Extract Origin from base_url — some Idox WAF rules require it
+    _p    = urlparse(base_url)
+    _origin = f"{_p.scheme}://{_p.netloc}"
+
     try:
-        pr = sess.post(form["form_action"], data=post,
-                       headers={"Referer": search_url}, timeout=30, allow_redirects=True)
+        pr = sess.post(
+            form["form_action"], data=post,
+            headers={
+                "Referer":      search_url,
+                "Origin":       _origin,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            timeout=30, allow_redirects=True,
+        )
         log(f"  POST → HTTP {pr.status_code}", 1)
     except Exception as e:
         log(f"  ❌ POST failed: {e}", 1)
         return [], None
+
+    # ── 403 recovery: re-warm the session and retry once ─────────────────
+    # 403 here almost always means the session cookies are stale or the
+    # disclaimer was never accepted in this session. Re-warming fixes it.
+    if pr.status_code == 403:
+        log(f"  ⚠️  403 on POST — re-warming session and retrying once", 1)
+        _warmup_portal_session(sess, base_url)
+        time.sleep(1)
+        # Fresh GET to get updated form token
+        r2 = safe_get(sess, search_url, timeout=25)
+        if r2 and r2.status_code == 200 and not _is_disclaimer_page(r2.text):
+            form2 = read_form(r2.text, base_url)
+            if form2:
+                post2 = dict(form2["fields"])
+                post2["searchType"] = "Application"
+                post2[form2["desc"] or "searchCriteria.description"] = keyword
+                if with_refused and form2["decision"] and form2["refused"]:
+                    post2[form2["decision"]] = form2["refused"]
+                elif with_refused:
+                    post2["searchCriteria.caseDecision"] = "REF"
+                post2[form2["date_start"] or "date(applicationDecisionStart)"] = date_from
+                post2[form2["date_end"]   or "date(applicationDecisionEnd)"]   = date_to
+                try:
+                    pr = sess.post(
+                        form2["form_action"], data=post2,
+                        headers={
+                            "Referer":      search_url,
+                            "Origin":       _origin,
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        timeout=30, allow_redirects=True,
+                    )
+                    log(f"  POST retry → HTTP {pr.status_code}", 1)
+                    if pr.status_code == 403:
+                        log(f"  ❌ Still 403 after session re-warm — portal blocking this IP", 1)
+                        return [], None
+                    form = form2  # use updated form for result fetching
+                except Exception as e:
+                    log(f"  ❌ POST retry failed: {e}", 1)
+                    return [], None
+        else:
+            log(f"  ❌ Could not re-warm session — skipping this keyword", 1)
+            return [], None
 
     time.sleep(2)  # give server time to store session
 
@@ -2091,6 +2250,14 @@ def scrape_council(council, base_url, date_from, date_to):
     all_items = []
     qualified = []
 
+    # Warm up the session before any keyword search.
+    # This seeds JSESSIONID from the portal root and accepts any disclaimer,
+    # preventing the 403-on-POST that occurs with cold sessions.
+    log(f"  🔥 Warming session…", 1)
+    if not _warmup_portal_session(sess, base_url):
+        log(f"  ❌ Session warmup failed — {council} unreachable, skipping")
+        return []
+
     for kw in RETAIL_KEYWORDS:
         try:
             items = search_one_keyword(sess, base_url, kw, date_from, date_to)
@@ -2125,6 +2292,7 @@ def scrape_council(council, base_url, date_from, date_to):
 # MAIN
 # ════════════════════════════════════════════════════════════
 def run():
+    run_start = datetime.now()
     today     = datetime.now()
     date_to   = today.strftime("%d/%m/%Y")
     date_from = (today - timedelta(weeks=WEEKS_TO_SCRAPE)).strftime("%d/%m/%Y")
@@ -2169,20 +2337,31 @@ def run():
 
         if idx < total - 1:
             pause = random.uniform(2, 4)
-            log(f"⏸️  {pause:.1f}s | {total-idx-1} remaining | {len(grand)} leads")
+            log(f"⏸️  {pause:.1f}s | {total-idx-1} remaining | {len(grand)} leads so far")
             time.sleep(pause)
 
     grand.sort(key=lambda x: x["score"], reverse=True)
+
+    run_duration_min = (datetime.now() - run_start).total_seconds() / 60
+
+    # ── Step 4: count leads added in the past 7 days from the sheet ────────
+    # This runs AFTER scraping so newly-written leads are included in the count.
+    weekly_count, weekly_leads = get_weekly_lead_count()
 
     # ── Final report ─────────────────────────────────────────
     print(f"\n{'='*60}")
     print(f"📊 FINAL RESULTS")
     print(f"{'='*60}")
 
-    print(f"\n  Councils scraped ({total}):")
+    print(f"\n  Run duration: {run_duration_min:.1f} minutes")
+    print(f"  Councils attempted:  {total}")
+    print(f"  New leads this run:  {len(grand)}")
+    print(f"  Leads (past 7 days, including previous runs): {weekly_count}")
+
+    print(f"\n  Council breakdown:")
     for c, n in summary.items():
         mark = "❌ FAILED" if c in failed else f"🏆 {n} leads" if n else "  0"
-        print(f"    {c:22s}: {mark}")
+        print(f"    {c:25s}: {mark}")
 
     if failed:
         print(f"\n  Failed during scrape ({len(failed)}):")
@@ -2190,11 +2369,12 @@ def run():
             print(f"    {fc}")
 
     print(f"\n  {'─'*36}")
-    print(f"  {'TOTAL QUALIFIED':22s}: {len(grand)} leads")
+    print(f"  {'NEW LEADS THIS RUN':25s}: {len(grand)}")
+    print(f"  {'LEADS PAST 7 DAYS':25s}: {weekly_count}")
     print(f"{'='*60}")
 
     if grand:
-        print(f"\n🏆 TOP LEADS:")
+        print(f"\n🏆 TOP NEW LEADS:")
         for lead in grand[:10]:
             print(f"\n  [{lead['score']}pts] {lead['council']} | {lead['ref']}")
             print(f"  {lead['addr']}")
@@ -2202,12 +2382,29 @@ def run():
             print(f"  Triggers: {lead['triggers']}")
             print(f"  {lead['url']}")
 
-    # Email digest — only in automated (GitHub Actions) mode
+    # ── Email digest — sent AFTER scraper fully completes ───────────────────
+    # Conditions before sending:
+    #   1. Must be in automated mode (GMAIL_APP_PASSWORD set)
+    #   2. Must have scraped at least some councils (run_duration > 1 min
+    #      guards against spurious fast crashes triggering email)
+    #   3. Send regardless of 0 new leads — weekly_count from sheet still
+    #      makes the email useful (shows what was already found)
     if os.environ.get("GMAIL_APP_PASSWORD"):
-        log("\n📧 Sending email digest…")
-        email_digest.send_digest(grand, summary, failed, date_from, date_to, log_fn=log)
+        councils_with_results = sum(1 for n in summary.values() if n >= 0)  # any attempted
+        if run_duration_min < 1.0 and len(grand) == 0:
+            log("⚠️  Run completed in < 1 min with 0 leads — suppressing email (likely startup failure)")
+        else:
+            log("\n📧 Sending email digest (run complete)…")
+            email_digest.send_digest(
+                grand, summary, failed,
+                date_from, date_to,
+                weekly_count=weekly_count,
+                weekly_leads=weekly_leads,
+                run_duration_min=run_duration_min,
+                log_fn=log,
+            )
     else:
-        log("ℹ️  Email skipped (Colab mode — set GMAIL_APP_PASSWORD secret for automated emails)")
+        log("ℹ️  Email skipped (Colab mode — set GMAIL_APP_PASSWORD for automated emails)")
 
 # ── Authenticate Google ──────────────────────────────────────
 # In GitHub Actions: GCP_SERVICE_ACCOUNT_JSON env var is set — no action needed here.

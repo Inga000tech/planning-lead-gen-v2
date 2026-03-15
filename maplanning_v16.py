@@ -1506,10 +1506,23 @@ def _do_post(sess, base_url, keyword, date_from, date_to, with_refused=True):
     time.sleep(2)  # give server time to store session
 
     # Some portals redirect the POST straight to results — check first
-    if pr.url and "Results" in pr.url and pr.status_code == 200:
-        items = collect_pages(sess, base_url, pr, keyword)
-        if items:
-            return items, form
+    # Use title detection (case-insensitive) not URL pattern — Bradford uses lowercase "results"
+    if pr.status_code == 200:
+        _pr_soup  = BeautifulSoup(pr.text, "html.parser")
+        _pr_title = _pr_soup.title.get_text(strip=True) if _pr_soup.title else ""
+        _is_results = (
+            "result" in pr.url.lower() or
+            "result" in _pr_title.lower() or
+            (
+                "Applications Search" not in _pr_title and
+                _pr_title and
+                bool(_pr_soup.select("li.searchresult, div.searchresult, li[class*='searchresult']"))
+            )
+        )
+        if _is_results:
+            items = collect_pages(sess, base_url, pr, keyword)
+            if items:
+                return items, form
 
     # Standard: GET the results page — try two common URL variants
     result_urls = [

@@ -1528,6 +1528,7 @@ def _do_post(sess, base_url, keyword, date_from, date_to, with_refused=True):
     result_urls = [
         f"{base_url}/advancedSearchResults.do?action=firstPage",
         f"{base_url}/searchResults.do?action=firstPage",
+        f"{base_url}/pagedSearchResults.do?action=firstPage", 
     ]
     for rurl in result_urls:
         rr = safe_get(sess, rurl)

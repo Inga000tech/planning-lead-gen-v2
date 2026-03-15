@@ -739,14 +739,14 @@ def get_weekly_lead_count():
         return 0, []
 
     def write_lead(lead):
-    ws = get_sheet()
-    if not ws:
-        return False
+        ws = get_sheet()
+        if not ws:
+            return False
 
-    # Fast in-memory dedup check
-    if lead["ref"] in _existing_refs:
-        log(f"  ⏭️  Duplicate: {lead['ref']}")
-        return False
+        # Fast in-memory dedup check
+        if lead["ref"] in _existing_refs:
+            log(f"  ⏭️  Duplicate: {lead['ref']}")
+            return False
 
     row_data = [
         lead["council"], lead["ref"], lead["addr"], lead["desc"],

@@ -38,7 +38,7 @@ SHEET_NAME = "Leads"
 # Normal weekly digest → set to 8
 # Send full history (e.g. first send to Mark) → set to 999
 #
-DAYS_BACK  = 90    # ← CHANGE THIS to 999 to send everything in the sheet
+DAYS_BACK  = 999    # ← CHANGE THIS to 999 to send everything in the sheet
 
 # ── EMAIL RECIPIENT ──────────────────────────────────────────
 # This is the FALLBACK if GMAIL_TO secret is not set in GitHub.
@@ -61,10 +61,10 @@ FALLBACK_TO = "inger.balaj@gmail.com"   # ← only used if GMAIL_TO secret is mi
 COL = dict(
     council=0, ref=1, addr=2, desc=3, app_type=4,
     applicant=5, agent=6, date_rec=7, date_dec=8,
-    triggers=10, score=11, keyword=12,
-    portal=13, date_found=14, comments=15,
-    est_value=16, developer=17, architect=18,
-    impact_prob=19, ch_number=20, reg_addr=21, contact_link=22
+    decision=9, triggers=10, score=11, keyword=12,
+    portal=13, dec_doc=14, date_found=15, comments=16,
+    est_value=17, developer=18, architect=19,
+    impact_prob=20, ch_number=21, reg_addr=22, contact_link=23
 )
 
 def cell(row, key):
@@ -99,21 +99,33 @@ def load_leads_from_sheet():
     total_leads = len(rows)
 
     for row in rows:
-        df_str = cell(row, "date_found")
+        # 1. Get the date string from 'Date Decided' (column 8)
+        # We use this because 'Date Found' might be empty in old leads
+        df_str = cell(row, "date_dec")
+        
         if not df_str:
-            continue
-        try:
-            df = datetime.strptime(df_str[:16], "%Y-%m-%d %H:%M")
-        except Exception:
+            # Fallback: if no decision date, use 'now' so it shows up for testing
+            df = datetime.now()
+        else:
             try:
-                df = datetime.strptime(df_str[:10], "%Y-%m-%d")
+                # Clean "Wed 18 Feb 2026" -> "18 Feb 2026"
+                parts = df_str.split()
+                if len(parts) > 3:
+                    clean_date = " ".join(parts[1:4]) # Takes '18', 'Feb', '2026'
+                    df = datetime.strptime(clean_date, "%d %b %Y")
+                else:
+                    df = datetime.now()
             except Exception:
-                continue
+                df = datetime.now()
 
+        # 2. Check if the lead is 'new' enough (999 days covers everything)
         if df >= cutoff:
-            try:   sc   = int(cell(row, "score"))
-            except: sc  = 0
-            try:   prob = int(str(cell(row, "impact_prob")).replace("%", ""))
+            try:    sc   = int(cell(row, "score"))
+            except: sc   = 0
+            
+            # Clean the probability (e.g., "75%" -> 75)
+            prob_str = str(cell(row, "impact_prob")).replace("%", "").strip()
+            try:    prob = int(prob_str) if prob_str else 0
             except: prob = 0
 
             new_leads.append({

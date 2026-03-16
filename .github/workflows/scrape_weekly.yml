@@ -4,8 +4,8 @@ on:
   # ── Job 1: Scrape every Sunday at 02:00 UTC ──────────────
   # ── Job 2: Email every Monday at 10:00 UTC ───────────────
   schedule:
-    - cron: "0 2 * * 0"    # Sunday 2AM  → scraper
-    - cron: "0 10 * * 1"   # Monday 10AM → email digest
+    - cron: "0 2 * * 0"     # Sunday 2AM UTC (Scraper)
+    - cron: "30 10 * * 1"   # Monday 10:30AM UTC -> 11:30AM CET (Email)
 
   workflow_dispatch:       # Manual trigger from Actions tab
 
